@@ -14,7 +14,7 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api/webhook", webhookRoutes);
 
 app.get("/", (req, res) => {
-  res.send("NavBuddhiAI Backend Running 🚀");
+  res.send("Digitalskill Sathi Backend Running 🚀");
 });
 
 const PORT = process.env.PORT || 5000;
