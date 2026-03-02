@@ -1,7 +1,6 @@
 const razorpay = require("../config/razorpay");
 const verifySignature = require("../utils/verifySignatures");
 const { createClient } = require("@supabase/supabase-js");
-const comboCourses = require("../constants/comboCourses");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -20,31 +19,15 @@ exports.createOrder = async (req, res) => {
     if (!amount || !courseTitle) {
       return res.status(400).json({ error: "Missing fields" });
     }
-    if (type === "course") {
-      const { data } = await supabase
-        .from("user_courses")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("course_title", courseTitle)
-        .maybeSingle();
+    const { data } = await supabase
+      .from("user_courses")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("course_title", courseTitle)
+      .maybeSingle();
 
-      if (data) {
-        return res.status(400).json({ error: "Course already purchased" });
-      }
-    }
-
-    if (type === "combo") {
-      const courses = comboCourses[courseTitle] || [];
-
-      const { data } = await supabase
-        .from("user_courses")
-        .select("course_title")
-        .eq("user_id", userId)
-        .in("course_title", courses);
-
-      if (data?.length) {
-        return res.status(400).json({ error: "Combo already purchased" });
-      }
+    if (data) {
+      return res.status(400).json({ error: "Course already purchased" });
     }
 
     const order = await razorpay.orders.create({
@@ -115,25 +98,13 @@ exports.verifyPayment = async (req, res) => {
       razorpay_order_id,
       razorpay_payment_id,
       status: "paid",
-      type,
     });
-    if (type === "combo") {
-      const courses = comboCourses[courseTitle] || [];
 
-      const unlockRows = courses.map((course) => ({
-        user_id: userId,
-        course_title: course,
-        unlocked: true,
-      }));
-
-      await supabase.from("user_courses").insert(unlockRows);
-    } else {
-      await supabase.from("user_courses").insert({
-        user_id: userId,
-        course_title: courseTitle,
-        unlocked: true,
-      });
-    }
+    await supabase.from("user_courses").insert({
+      user_id: userId,
+      course_title: courseTitle,
+      unlocked: true,
+    });
 
     res.json({ success: true });
 
