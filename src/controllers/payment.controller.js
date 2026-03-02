@@ -43,7 +43,7 @@ exports.createOrder = async (req, res) => {
     const order = await razorpay.orders.create({
       amount: amount * 100,
       currency: "INR",
-      receipt: `rcpt_${userId}_${Date.now()}`,
+      receipt: `rcpt_${Date.now().toString().slice(-8)}`, // Max 40 chars
       notes: {
         userId,
         courseTitle,
