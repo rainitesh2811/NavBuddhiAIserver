@@ -45,7 +45,11 @@ exports.createOrder = async (req, res) => {
 
   } catch (error) {
     console.error("Create order error:", error);
-    res.status(500).json({ error: "Failed to create order" });
+    res.status(500).json({ 
+      error: "Failed to create order",
+      details: error.message || "Unknown error",
+      message: error.message
+    });
   }
 };
 
