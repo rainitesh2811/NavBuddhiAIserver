@@ -12,23 +12,33 @@ exports.createOrder = async (req, res) => {
   try {
     const { amount, userId, courseTitle, type = "course" } = req.body;
 
+    console.log("📝 createOrder called with:", { amount, userId, courseTitle, type });
+
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
     if (!amount || !courseTitle) {
-      return res.status(400).json({ error: "Missing fields" });
+      return res.status(400).json({ error: "Missing fields: amount or courseTitle" });
     }
-    const { data } = await supabase
-      .from("user_courses")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("course_title", courseTitle)
-      .maybeSingle();
+    
+    try {
+      const { data } = await supabase
+        .from("user_courses")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("course_title", courseTitle)
+        .maybeSingle();
 
-    if (data) {
-      return res.status(400).json({ error: "Course already purchased" });
+      if (data) {
+        return res.status(400).json({ error: "Course already purchased" });
+      }
+    } catch (dbError) {
+      console.warn("⚠️ Supabase check failed (continuing anyway):", dbError.message);
     }
+
+    console.log("🔑 Razorpay Key ID:", process.env.RAZORPAY_KEY_ID ? "✓ Present" : "✗ Missing");
+    console.log("🔑 Razorpay Secret:", process.env.RAZORPAY_KEY_SECRET ? "✓ Present" : "✗ Missing");
 
     const order = await razorpay.orders.create({
       amount: amount * 100,
@@ -41,10 +51,16 @@ exports.createOrder = async (req, res) => {
       },
     });
 
+    console.log("✅ Razorpay order created:", order.id);
     res.json(order);
 
   } catch (error) {
-    console.error("Create order error:", error);
+    console.error("❌ Create order error:", {
+      message: error.message,
+      code: error.code,
+      statusCode: error.statusCode,
+      fullError: error
+    });
     res.status(500).json({ 
       error: "Failed to create order",
       details: error.message || "Unknown error",
