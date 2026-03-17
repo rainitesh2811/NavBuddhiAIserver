@@ -12,8 +12,6 @@ exports.createOrder = async (req, res) => {
   try {
     const { amount, userId, courseTitle, type = "course" } = req.body;
 
-    console.log("📝 createOrder called with:", { amount, userId, courseTitle, type });
-
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -34,16 +32,13 @@ exports.createOrder = async (req, res) => {
         return res.status(400).json({ error: "Course already purchased" });
       }
     } catch (dbError) {
-      console.warn("⚠️ Supabase check failed (continuing anyway):", dbError.message);
+      // Continue if check fails
     }
-
-    console.log("🔑 Razorpay Key ID:", process.env.RAZORPAY_KEY_ID ? "✓ Present" : "✗ Missing");
-    console.log("🔑 Razorpay Secret:", process.env.RAZORPAY_KEY_SECRET ? "✓ Present" : "✗ Missing");
 
     const order = await razorpay.orders.create({
       amount: amount * 100,
       currency: "INR",
-      receipt: `rcpt_${Date.now().toString().slice(-8)}`, // Max 40 chars
+      receipt: `rcpt_${Date.now().toString().slice(-8)}`,
       notes: {
         userId,
         courseTitle,
@@ -51,20 +46,26 @@ exports.createOrder = async (req, res) => {
       },
     });
 
-    console.log("✅ Razorpay order created:", order.id);
+    // Store preliminary order record
+    try {
+      await supabase.from("orders").insert([{
+        user_id: userId,
+        course_title: courseTitle,
+        amount,
+        razorpay_order_id: order.id,
+        status: "pending",
+        created_at: new Date().toISOString(),
+      }]);
+    } catch (dbError) {
+      // Don't fail the request
+    }
+
     res.json(order);
 
   } catch (error) {
-    console.error("❌ Create order error:", {
-      message: error.message,
-      code: error.code,
-      statusCode: error.statusCode,
-      fullError: error
-    });
     res.status(500).json({ 
       error: "Failed to create order",
       details: error.message || "Unknown error",
-      message: error.message
     });
   }
 };
@@ -101,6 +102,7 @@ exports.verifyPayment = async (req, res) => {
     if (!isValid) {
       return res.status(400).json({ error: "Invalid signature" });
     }
+
     const { data: existingOrder } = await supabase
       .from("orders")
       .select("id")
@@ -110,26 +112,66 @@ exports.verifyPayment = async (req, res) => {
     if (existingOrder) {
       return res.status(400).json({ error: "Payment already verified" });
     }
-    await supabase.from("orders").insert({
-      user_id: userId,
-      course_title: courseTitle,
-      category,
-      amount,
-      razorpay_order_id,
-      razorpay_payment_id,
-      status: "paid",
-    });
+    
+    // Store order in orders table
+    const { error: orderError } = await supabase
+      .from("orders")
+      .insert([{
+        user_id: userId,
+        course_title: courseTitle,
+        category,
+        amount,
+        razorpay_order_id,
+        razorpay_payment_id,
+        status: "paid",
+        created_at: new Date().toISOString(),
+      }]);
 
-    await supabase.from("user_courses").insert({
-      user_id: userId,
-      course_title: courseTitle,
-      unlocked: true,
-    });
+    if (orderError) {
+      throw new Error(`Failed to insert order: ${orderError.message}`);
+    }
+
+    // Store in user_courses table
+    const { error: courseError } = await supabase
+      .from("user_courses")
+      .insert([{
+        user_id: userId,
+        course_title: courseTitle,
+        category,
+        purchased_at: new Date().toISOString(),
+        unlocked: true,
+      }]);
+
+    if (courseError) {
+      throw new Error(`Failed to insert user_courses: ${courseError.message}`);
+    }
 
     res.json({ success: true });
 
   } catch (error) {
-    console.error("Verify payment error:", error);
-    res.status(500).json({ error: "Payment verification failed" });
+    res.status(500).json({ error: error.message || "Payment verification failed" });
+  }
+};
+exports.getPurchasedCourses = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+
+    const { data: courses, error } = await supabase
+      .from("user_courses")
+      .select("course_title, category, purchased_at, unlocked")
+      .eq("user_id", userId);
+
+    if (error) {
+      return res.status(500).json({ error: "Failed to fetch purchased courses" });
+    }
+
+    res.json({ purchasedCourses: courses || [] });
+
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch purchased courses" });
   }
 };
